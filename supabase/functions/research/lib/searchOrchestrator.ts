@@ -22,22 +22,26 @@ export async function runSearch(
   maxPosts: number = config.minPostsThreshold
 ): Promise<SearchResult> {
   const queries = [plan.primary_query, ...plan.fallback_queries];
-  const targetCalls = Math.min(config.maxLinkdApiCalls, Math.ceil(maxPosts / PAGE_SIZE));
-  const hardCeiling = config.maxLinkdApiCalls;
+  // One call per page of results requested; default 10 posts → 1 call.
+  const targetCalls = Math.max(
+    1,
+    Math.min(config.maxLinkdApiCalls, Math.ceil(maxPosts / PAGE_SIZE))
+  );
   let posts: NormalizedPost[] = [];
   let callsUsed = 0;
 
   for (const query of queries) {
     if (posts.length >= maxPosts) break;
-    const callBudget = posts.length > 0 ? targetCalls : hardCeiling;
-    if (callsUsed >= callBudget) break;
+    if (callsUsed >= targetCalls) break;
+    // Fallback queries only run when the primary found literally nothing —
+    // never spend extra quota just to top up an already-productive search.
+    if (query !== plan.primary_query && posts.length > 0) break;
 
     let start = 0;
     let hasMore = true;
 
     while (hasMore) {
-      const innerBudget = posts.length > 0 ? targetCalls : hardCeiling;
-      if (callsUsed >= innerBudget) break;
+      if (callsUsed >= targetCalls) break;
       if (posts.length >= maxPosts) break;
 
       callsUsed++;

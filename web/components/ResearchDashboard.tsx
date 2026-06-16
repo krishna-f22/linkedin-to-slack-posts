@@ -45,32 +45,6 @@ const PROGRESS_STEPS: ResearchJob["status"][] = [
 
 const POST_LIMIT_OPTIONS = [10, 20, 30, 40, 50] as const;
 
-const ROLE_PRESETS = ["Founder", "CEO", "Engineer", "Product Manager", "Recruiter", "Marketing"];
-
-const DATE_POSTED_OPTIONS = [
-  { value: "", label: "Any time" },
-  { value: "past-24h", label: "Past 24 hours" },
-  { value: "past-week", label: "Past week" },
-  { value: "past-month", label: "Past month" },
-  { value: "past-year", label: "Past year" },
-] as const;
-
-const CONTENT_TYPE_OPTIONS = [
-  { value: "", label: "Any type" },
-  { value: "videos", label: "Videos" },
-  { value: "photos", label: "Photos" },
-  { value: "documents", label: "Documents" },
-  { value: "jobs", label: "Jobs" },
-  { value: "liveVideos", label: "Live videos" },
-  { value: "collaborativeArticles", label: "Collaborative articles" },
-] as const;
-
-const SORT_BY_OPTIONS = [
-  { value: "", label: "Best match (auto)" },
-  { value: "relevance", label: "Relevance" },
-  { value: "date_posted", label: "Latest" },
-] as const;
-
 const MAX_INTENT_LENGTH = 500;
 
 function Spinner({ className = "h-3 w-3" }: { className?: string }) {
@@ -148,11 +122,6 @@ export default function ResearchDashboard({ userEmail }: { userEmail: string }) 
   const router = useRouter();
   const [intent, setIntent] = useState("");
   const [postLimit, setPostLimit] = useState<number>(10);
-  const [showAdvanced, setShowAdvanced] = useState(false);
-  const [authorJobTitle, setAuthorJobTitle] = useState("");
-  const [datePosted, setDatePosted] = useState("");
-  const [contentType, setContentType] = useState("");
-  const [sortBy, setSortBy] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [jobs, setJobs] = useState<ResearchJob[]>([]);
@@ -210,15 +179,9 @@ export default function ResearchDashboard({ userEmail }: { userEmail: string }) 
     setSubmitting(true);
     setSubmitError(null);
 
-    const filters: Record<string, string> = {};
-    if (authorJobTitle.trim()) filters.authorJobTitle = authorJobTitle.trim();
-    if (datePosted) filters.datePosted = datePosted;
-    if (contentType) filters.contentType = contentType;
-    if (sortBy) filters.sortBy = sortBy;
-
     const supabase = createClient();
     const { error } = await supabase.functions.invoke("research", {
-      body: { intent: trimmed, maxPosts: postLimit, filters },
+      body: { intent: trimmed, maxPosts: postLimit },
     });
 
     if (error) {
@@ -314,116 +277,6 @@ export default function ResearchDashboard({ userEmail }: { userEmail: string }) 
                   {submitting ? "Submitting..." : "Research"}
                 </button>
               </div>
-            </div>
-
-            <div>
-              <button
-                type="button"
-                onClick={() => setShowAdvanced((v) => !v)}
-                className="inline-flex items-center gap-1 text-xs font-medium text-zinc-500 hover:text-zinc-700"
-              >
-                <svg
-                  className={`h-3 w-3 transition-transform ${showAdvanced ? "rotate-90" : ""}`}
-                  viewBox="0 0 20 20"
-                  fill="currentColor"
-                >
-                  <path
-                    fillRule="evenodd"
-                    d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z"
-                    clipRule="evenodd"
-                  />
-                </svg>
-                Advanced filters{" "}
-                {(authorJobTitle || datePosted || contentType || sortBy) && (
-                  <span className="rounded-full bg-zinc-100 px-1.5 text-zinc-500">
-                    {[authorJobTitle, datePosted, contentType, sortBy].filter(Boolean).length}
-                  </span>
-                )}
-              </button>
-
-              {showAdvanced && (
-                <div className="mt-3 flex flex-col gap-3 rounded-lg border border-zinc-200 bg-zinc-50 p-3">
-                  <div>
-                    <p className="text-xs font-medium text-zinc-600">
-                      Author role{" "}
-                      <span className="text-zinc-400">(optional — leave blank to let AI decide)</span>
-                    </p>
-                    <div className="mt-1.5 flex flex-wrap gap-1.5">
-                      {ROLE_PRESETS.map((role) => (
-                        <button
-                          key={role}
-                          type="button"
-                          onClick={() =>
-                            setAuthorJobTitle((current) => (current === role ? "" : role))
-                          }
-                          className={`rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset transition ${
-                            authorJobTitle === role
-                              ? "bg-zinc-900 text-white ring-zinc-900"
-                              : "bg-white text-zinc-600 ring-zinc-300 hover:bg-zinc-100"
-                          }`}
-                        >
-                          {role}
-                        </button>
-                      ))}
-                    </div>
-                    <input
-                      type="text"
-                      value={authorJobTitle}
-                      onChange={(e) => setAuthorJobTitle(e.target.value)}
-                      maxLength={100}
-                      placeholder="Or type any role, e.g. Head of Growth"
-                      className="mt-1.5 w-full rounded-md border border-zinc-300 px-2.5 py-1.5 text-xs text-zinc-900 placeholder:text-zinc-400 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                    <div>
-                      <label className="text-xs font-medium text-zinc-600">Date posted</label>
-                      <select
-                        value={datePosted}
-                        onChange={(e) => setDatePosted(e.target.value)}
-                        className="mt-1.5 w-full rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-xs font-medium text-zinc-700 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
-                      >
-                        {DATE_POSTED_OPTIONS.map((opt) => (
-                          <option key={opt.value} value={opt.value}>
-                            {opt.label}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="text-xs font-medium text-zinc-600">Content type</label>
-                      <select
-                        value={contentType}
-                        onChange={(e) => setContentType(e.target.value)}
-                        className="mt-1.5 w-full rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-xs font-medium text-zinc-700 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
-                      >
-                        {CONTENT_TYPE_OPTIONS.map((opt) => (
-                          <option key={opt.value} value={opt.value}>
-                            {opt.label}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="text-xs font-medium text-zinc-600">Sort by</label>
-                      <select
-                        value={sortBy}
-                        onChange={(e) => setSortBy(e.target.value)}
-                        className="mt-1.5 w-full rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-xs font-medium text-zinc-700 focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
-                      >
-                        {SORT_BY_OPTIONS.map((opt) => (
-                          <option key={opt.value} value={opt.value}>
-                            {opt.label}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-                </div>
-              )}
             </div>
 
             {submitError && (

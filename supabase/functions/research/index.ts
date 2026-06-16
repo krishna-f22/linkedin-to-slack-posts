@@ -37,7 +37,7 @@ function parseUserFilters(raw: unknown): SearchPlanFilters {
   const obj = raw as Record<string, unknown>;
 
   if (typeof obj.authorJobTitle === "string" && obj.authorJobTitle.trim()) {
-    filters.authorJobTitle = obj.authorJobTitle.trim().slice(0, 100);
+    filters.authorJobTitle = obj.authorJobTitle.trim().slice(0, 200);
   }
   if (ALLOWED_DATE_POSTED.includes(obj.datePosted as never)) {
     filters.datePosted = obj.datePosted as SearchPlanFilters["datePosted"];
@@ -82,12 +82,22 @@ async function runPipeline(
     }
 
     logger.info("summarizing", `Summarizing ${posts.length} posts`);
-    const summaries = await summarize(intent, posts);
-    const summaryMarkdown = summaryToMarkdown(summaries, posts);
+    const allSummaries = await summarize(intent, posts);
+
+    // Keep only genuinely relevant posts (LLM relevance >= threshold).
+    const relevant = allSummaries.filter((s) => s.relevance >= config.minRelevance);
+    logger.info(
+      "summarizing",
+      `${relevant.length}/${allSummaries.length} posts cleared relevance >= ${config.minRelevance}`
+    );
+
+    const summaryMarkdown = relevant.length
+      ? summaryToMarkdown(relevant, posts)
+      : `No posts relevant to "${intent}" were found in this search. Try rephrasing the intent or adjusting filters.`;
     await saveSummary(jobId, summaryMarkdown);
 
     logger.info("posting", "Posting summary to Slack");
-    await postSummaryToSlack(intent, summaries, posts);
+    await postSummaryToSlack(intent, relevant, posts);
 
     await markCompleted(jobId);
     logger.info("completed", "Job completed");

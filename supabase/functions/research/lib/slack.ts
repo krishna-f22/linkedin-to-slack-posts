@@ -52,6 +52,17 @@ export function buildSlackBlocks(
 
   blocks.push({ type: "divider" });
 
+  if (summaries.length === 0) {
+    blocks.push({
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: "No posts relevant to this intent were found. Try rephrasing the intent or adjusting filters.",
+      },
+    });
+    return blocks.slice(0, 50);
+  }
+
   let shown = 0;
   for (const s of summaries) {
     const post = posts[s.index];

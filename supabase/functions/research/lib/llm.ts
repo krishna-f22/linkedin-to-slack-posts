@@ -50,18 +50,31 @@ const SEARCH_PLAN_SCHEMA = {
   strict: true,
 };
 
-const PLANNER_SYSTEM_PROMPT = `You are a LinkedIn search planner. Given a user's research intent, produce an optimized LinkedIn post search plan.
+const PLANNER_SYSTEM_PROMPT = `You convert a user's research intent into a SIMPLE LinkedIn post search keyword — the plain words the user would type into LinkedIn search. The endpoint already returns POSTS only, so keep it dead simple. The final step ranks relevance.
+
+CORE RULE: keep the user's OWN words — the action word AND the topic/role/location they wrote. If the user says "hiring", keep "hiring". Do NOT invent phrases they did not say (no "we're hiring", no "we are looking for", no first-person rewrites). NEVER append the word "post" or "posts" to the query — it is implied. Strip all filler.
+
+TWO HARD RULES proven against this API:
+1. WORD ORDER: put the ACTION WORD FIRST. "hiring gen ai engineer" returns 479 fresh real job posts; "gen ai engineer hiring" returns nothing. Lead with the verb (hiring / launching / announcing), then the role.
+2. NO LOCATION in the keyword. Adding a country/city like "india" skews results to recruitment-agency commentary, not real job posts ("hiring gen ai engineer" = 479 real posts; "hiring gen ai engineer india" = agency think-pieces). Real job posts name their own city anyway, so India jobs (Pune, Bangalore) still appear without the word. Keep location OUT of primary_query — the summarizer ranks location relevance from the intent.
 
 Rules:
-- primary_query: a BROAD, high-recall keyword search (2-4 core keywords) that captures the heart of the intent. Maximize the number of relevant posts returned. Do NOT stack many AND terms and avoid quoted exact phrases here — keep it simple so it returns plenty of posts (e.g. prefer a short query like: AI agents startups — over a heavily stacked boolean one).
-- fallback_queries: 1-3 alternative or more specific phrasings (this is where narrower boolean queries belong) to try if the primary query returns too few relevant results. Order by likely relevance.
-- filters.authorJobTitle: ALWAYS set this to null. Author-role filtering is controlled exclusively by the user via a separate UI control, not by you. If the user's intent emphasizes a role (e.g. "founders", "CEOs", "AI engineers"), weave that role into primary_query/fallback_queries as a keyword instead (e.g. "(Founder OR CEO) AND fintech") rather than setting this filter.
-- filters.datePosted: set to "past-24h", "past-week", "past-month", or "past-year" if the user implies recency (e.g. "recent", "latest", "this week"). Otherwise null.
-- filters.contentType: set if the user explicitly wants a content format (videos, photos, documents, jobs, liveVideos, collaborativeArticles). Otherwise null.
-- filters.sortBy: "date_posted" if the user wants the newest content, otherwise "relevance".
-- Do NOT invent company names, person names, or IDs as filters - those are not supported.
-- Keep queries concise (3-6 words), using terms that would realistically appear in LinkedIn posts.
-- LinkedIn keyword search supports boolean operators AND, OR, NOT, and parentheses. Use these mainly in fallback_queries for precision. Keep primary_query broad for recall; reserve heavy boolean logic (multiple ANDs, quoted phrases) for fallbacks. Only use AND/OR/NOT when the intent genuinely implies that logic - do not force it into simple queries.`;
+- primary_query: short plain keyword. NO boolean operators, NO quotes, NO parentheses, NO "post"/"posts", NO location word. Strip filler ("give me posts about", "post where", "people who", "with any experience", "in india").
+  - HIRING intents → "hiring <role>" (verb FIRST, role only, NO location):
+    - "give me posts about people hiring ai engineer" → "hiring ai engineer"
+    - "post where people are hiring gen ai engineer in india with any experience" → "hiring gen ai engineer"
+    - "hiring posts where they're hiring for engineers in India" → "hiring engineers"
+  - CONCEPTUAL / insight intents → pass the phrase through almost verbatim (it is already a good search):
+    - "How startups use AI agents for workflows" → "How startups use AI agents for workflows"
+    - "how are startups using AI agents for support" → "startups AI agents support"
+- fallback_queries: 1-3 simple alternatives / synonyms (plain keywords, verb-first, role only, no location, no operators). E.g. for the gen ai example: "hiring generative AI engineer", "hiring ML engineer", "hiring AI engineer".
+- filters.authorJobTitle: ALWAYS null. (User controls role filtering via the UI — never set it here, and never put a role into primary_query unless the user's own topic IS that role.)
+- filters.datePosted: "past-24h" | "past-week" | "past-month" | "past-year" only if the intent clearly implies recency; else null.
+- filters.contentType: usually null. Only set if the user explicitly wants a format (videos/photos/documents/jobs/liveVideos/collaborativeArticles).
+- filters.sortBy: set "date_posted" for hiring/job intents. With a role-only keyword (no location), date sort returns the FRESHEST real job posts (hours old) — proven: "hiring gen ai engineer" + date_posted = 378 real posts, all 3-23h old. Use "relevance" only for broad conceptual/insight questions ("how are startups using AI agents").
+- Do NOT invent company/person names or IDs. NEVER put filter values (date, content type) or a location into primary_query.
+
+Keep it short, plain, literal to the user's words. Relevance is decided later by the summarizer.`;
 
 const SUMMARY_SCHEMA = {
   name: "post_summaries",
@@ -97,7 +110,15 @@ Rules:
 - Produce exactly one summary object per input post, using the post's exact integer "index".
 - Do NOT skip any post. Do NOT merge posts. Do NOT add an overall overview. Every post must appear.
 - summary: 1-2 sentences capturing what THIS post actually says, relevant to the user's intent. Be specific and factual to the post's content.
-- relevance: integer 0-100 scoring how well THIS post answers the user's intent (100 = directly on-topic and substantive, 0 = unrelated/spam). Score by meaning, not just keyword presence. Use the full range to differentiate posts.
+- relevance: integer 0-100 scoring how well THIS post answers the user's intent (100 = directly on-topic and substantive, 0 = unrelated/spam). Score by MEANING, not keyword presence. Use the full range to differentiate posts. Be strict — score under 40 when a post matches the search words but is off the user's actual ask. Example: intent "hiring gen ai engineer" → a post hiring a Full-Stack / Frontend / generic SDE engineer is OFF-topic; score it under 40 even though it says "hiring" and "engineer". Only posts that genuinely match the specific role/topic the user wants score high.
+- DUPLICATES: the same job opening is often reposted by multiple recruiters or twice by the same person. Collapse them to ONE card. Treat posts as the SAME opening when the role AND the core details (responsibilities, required years/experience, skills) are essentially the same AND nothing clearly distinguishes them. When you find such a set, give ONE copy (the most complete) its real score and score every other copy under 40 so they drop. Identical or near-identical wording = same job, even if the author/recruiter differs and no company is named.
+  ONLY keep them separate when a CLEAR distinguishing detail exists: a different company, a different city/branch (e.g. "TCS Gen AI Engineer Pune" vs "TCS Gen AI Engineer Bangalore" = two real jobs, keep both), or a different seniority/role. If two posts describe the same role+experience+skills with no such distinguishing detail, MERGE them.
+- LOCATION: if the intent names a place (e.g. "in india", "bangalore", "remote"), use it to RANK, not to exclude. Show all unique on-topic jobs; just order them by location match:
+  - Post in the intended place or a city/region within it (for India: Bangalore, Pune, Hyderabad, Mumbai, Chennai, Gurgaon, Delhi, Noida, Maharashtra, Karnataka, India), or "remote (<that place>)": score HIGH (80-100 if on-topic) — these rank at the TOP.
+  - Post with NO clear location: score upper-middle (65-80 if on-topic) — don't penalize, a real local job often omits the country.
+  - Post clearly in a DIFFERENT country/city (e.g. Belgium, Dallas TX, London for an India intent): still a real job, so keep it but score it LOWER (50-65 if on-topic) so it ranks at the BOTTOM, below the in-location ones. Do NOT drop it just for location.
+  - Off-topic or duplicate posts still score under 40 regardless of location.
+  - When the intent names no place, ignore location entirely.
 - NEVER invent facts, names, or URLs. Only use the given post text.
 - Write in clear, professional English. If a post is in another language, summarize its meaning in English. No emojis, no markdown headers.`;
 

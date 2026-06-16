@@ -15,15 +15,15 @@ function optionalInt(name: string, fallback: number): number {
 }
 
 function linkdApiKeys(): string[] {
-  // Supports a comma-separated LINKDAPI_KEYS (for key failover) and/or single LINKDAPI_KEY.
-  const multi = Deno.env.get("LINKDAPI_KEYS") ?? "";
-  const single = Deno.env.get("LINKDAPI_KEY") ?? "";
-  const keys = [...multi.split(","), single]
+  // Single source of truth: LINKDAPI_KEYS — one key, or several comma-separated for failover.
+  const raw = Deno.env.get("LINKDAPI_KEYS") ?? "";
+  const keys = raw
+    .split(",")
     .map((k) => k.trim())
     .filter((k) => k.length > 0);
   const unique = [...new Set(keys)];
   if (unique.length === 0) {
-    throw new Error("Missing required environment variable: LINKDAPI_KEY or LINKDAPI_KEYS");
+    throw new Error("Missing required environment variable: LINKDAPI_KEYS");
   }
   return unique;
 }
@@ -36,6 +36,7 @@ export const config = {
   slackWebhookUrl: required("SLACK_WEBHOOK_URL"),
   maxLinkdApiCalls: optionalInt("MAX_LINKDAPI_CALLS", 6),
   minPostsThreshold: optionalInt("MIN_POSTS_THRESHOLD", 8),
-  plannerModel: Deno.env.get("OPENAI_PLANNER_MODEL") || "gpt-5-mini",
+  minRelevance: optionalInt("MIN_RELEVANCE", 50),
+  plannerModel: Deno.env.get("OPENAI_PLANNER_MODEL") || "gpt-5",
   summarizerModel: Deno.env.get("OPENAI_SUMMARIZER_MODEL") || "gpt-5",
 };
