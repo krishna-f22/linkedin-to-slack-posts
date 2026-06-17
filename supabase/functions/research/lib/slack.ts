@@ -125,6 +125,68 @@ export async function postSummaryToSlack(
   }
 }
 
+const SLACK_POST_MESSAGE_URL = "https://slack.com/api/chat.postMessage";
+
+interface PostOptions {
+  thread_ts?: string;
+}
+
+/** POST to chat.postMessage with the bot token. Throws on transport or logical (ok:false) failure. */
+async function chatPostMessage(payload: Record<string, unknown>): Promise<{ ts: string }> {
+  const response = await fetchWithRetry(
+    SLACK_POST_MESSAGE_URL,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        Authorization: `Bearer ${config.slackBotToken}`,
+      },
+      body: JSON.stringify(payload),
+    },
+    { retries: 1 }
+  );
+
+  // chat.postMessage returns HTTP 200 even on logical errors; the real status is body.ok.
+  const body = (await response.json().catch(() => null)) as
+    | { ok?: boolean; error?: string; ts?: string }
+    | null;
+  if (!response.ok || !body?.ok) {
+    throw new Error(`Slack chat.postMessage failed: ${body?.error ?? response.status}`);
+  }
+  return { ts: body.ts ?? "" };
+}
+
+/** Post the full research result to a specific channel/thread (Slack-native flow). */
+export async function postMessageToChannel(
+  channel: string,
+  intent: string,
+  summaries: PostSummary[],
+  posts: NormalizedPost[],
+  opts: PostOptions = {}
+): Promise<void> {
+  const blocks = buildSlackBlocks(intent, summaries, posts);
+  const text = buildFallbackText(intent, summaries);
+  await chatPostMessage({ channel, thread_ts: opts.thread_ts, text, blocks });
+}
+
+/** Instant acknowledgement ("Searching… 🔎") so the user sees a reply within Slack's 3s window. */
+export async function postAck(
+  channel: string,
+  text: string,
+  opts: PostOptions = {}
+): Promise<{ ts: string }> {
+  return await chatPostMessage({ channel, thread_ts: opts.thread_ts, text });
+}
+
+/** Plain-text message (used for failure notices). Alias of postAck for intent clarity. */
+export async function postText(
+  channel: string,
+  text: string,
+  opts: PostOptions = {}
+): Promise<void> {
+  await chatPostMessage({ channel, thread_ts: opts.thread_ts, text });
+}
+
 /** Render to Markdown for DB storage / web UI display. */
 export function summaryToMarkdown(
   summaries: PostSummary[],
