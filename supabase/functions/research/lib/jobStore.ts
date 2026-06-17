@@ -13,10 +13,43 @@ function getClient(): SupabaseClient {
   return client;
 }
 
-export async function createJob(userId: string, intent: string): Promise<string> {
+export interface CreateJobOptions {
+  userId?: string | null;
+  source?: "web" | "slack";
+  slackChannel?: string;
+  slackUser?: string;
+  slackThreadTs?: string;
+}
+
+export async function createJob(
+  userIdOrIntent: string,
+  intentOrOptions?: string | CreateJobOptions,
+  maybeOptions?: CreateJobOptions
+): Promise<string> {
+  // Back-compat overloads:
+  //   createJob(userId, intent)                    — web flow
+  //   createJob(intent, { source: 'slack', ... })  — slack flow
+  let intent: string;
+  let opts: CreateJobOptions;
+  if (typeof intentOrOptions === "string") {
+    intent = intentOrOptions;
+    opts = { userId: userIdOrIntent, ...(maybeOptions ?? {}) };
+  } else {
+    intent = userIdOrIntent;
+    opts = intentOrOptions ?? {};
+  }
+
   const { data, error } = await getClient()
     .from("research_jobs")
-    .insert({ user_id: userId, intent, status: "pending" satisfies JobStatus })
+    .insert({
+      user_id: opts.userId ?? null,
+      intent,
+      status: "pending" satisfies JobStatus,
+      source: opts.source ?? "web",
+      slack_channel: opts.slackChannel ?? null,
+      slack_user: opts.slackUser ?? null,
+      slack_thread_ts: opts.slackThreadTs ?? null,
+    })
     .select("id")
     .single();
 

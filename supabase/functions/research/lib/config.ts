@@ -34,6 +34,15 @@ export const config = {
   openaiApiKey: required("OPENAI_API_KEY"),
   linkdApiKeys: linkdApiKeys(),
   slackWebhookUrl: required("SLACK_WEBHOOK_URL"),
+  // Slack bot creds — lazy so the web `research` fn doesn't hard-require them at import.
+  // Only the `slack-events` fn (chat.postMessage + signature verify) reads these.
+  get slackBotToken(): string {
+    return required("SLACK_BOT_TOKEN");
+  },
+  get slackSigningSecret(): string {
+    return required("SLACK_SIGNING_SECRET");
+  },
+  slackBotUserId: Deno.env.get("SLACK_BOT_USER_ID") || "",
   maxLinkdApiCalls: optionalInt("MAX_LINKDAPI_CALLS", 6),
   minPostsThreshold: optionalInt("MIN_POSTS_THRESHOLD", 8),
   minRelevance: optionalInt("MIN_RELEVANCE", 50),
